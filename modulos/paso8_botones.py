@@ -1,33 +1,19 @@
 """
 ========================================================
-  PASO 8 - Botones Virtuales
+  PASO 8 - Botones y Gestos Integrados
   Proyecto: Touch Wall (Proyección Interactiva)
 ========================================================
   Objetivo:
-    Crear botones virtuales en pantalla que se activan
-    cuando la punta del dedo índice entra en su área
-    y se confirman con un PINCH (gesto del paso 7).
+    Integrar los gestos intuitivos con los botones virtuales.
+    Los botones se activan inmediatamente haciendo PINCH
+    sobre ellos, o esperando (Dwell) como respaldo.
 
-  Sistema de botones:
-    · El dedo entra en el área del botón  → hover (resaltado)
-    · Se mantiene el hover N frames       → barra de carga
-    · Barra llena                         → acción ejecutada
-    (Sin necesidad de pinch para mayor ergonomía)
-
-  Botones disponibles (barra lateral izquierda):
-    [COLOR]    × 8  Cambiar color del pincel
-    [BORRADOR]      Activar/desactivar borrador
-    [LIMPIAR]       Limpiar todo el lienzo
-    [GROSOR+]       Aumentar grosor del pincel
-    [GROSOR-]       Reducir grosor del pincel
-    [DIBUJAR]       Toggle modo dibujo (igual que PINCH)
-
-  Gestos de la mano:
-    PINCH → toggle modo dibujo
-
-  Teclado (respaldo):
-    [d/SPC] Dibujo | [b] Borrador | [r] Reset
-    [c] Color  [+/-] Grosor  [s] Captura  [q] Salir
+  Nuevos Gestos (Solicitados por el usuario):
+    👆 INDICE    → Mover cursor (hover de botones) sin dibujar
+    🤏 PINCH     → Clic en botón / Dibujar en lienzo
+    ✌️ DOS JUNTOS→ Borrador (índice y medio pegados)
+    ✌️ VICTORIA  → Cambiar color (índice y medio separados)
+    ✊ PUÑO      → Pausa total
 
   Librerías requeridas:
     pip install opencv-python mediapipe
@@ -51,7 +37,7 @@ CAMARA_ID      = 0
 ANCHO          = 1280
 ALTO           = 720
 FPS_OBJETIVO   = 30
-NOMBRE_VENTANA = "TouchWall - Paso 8: Botones Virtuales"
+NOMBRE_VENTANA = "TouchWall - Paso 8: Botones y Gestos"
 
 RUTA_MODELO = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
@@ -71,43 +57,41 @@ INDICE_LM               = 8
 # Suavizado
 LERP_FACTOR = 0.35
 
-# Gestos
-UMBRAL_PINCH        = 0.055
-FRAMES_CONFIRMACION = 6
+# Umbrales
+UMBRAL_PINCH   = 0.055
+FRAMES_ESTABLE = 4       # frames para estabilizar el gesto detectado
+FRAMES_HOVER   = 25      # dwell time como respaldo por si no funciona el pinch
 
 # Pizarra
 PALETA_COLORES = [
-    (255, 255, 255),    # blanco
-    (0,   0,   255),    # rojo
-    (0,   165, 255),    # naranja
-    (0,   255, 255),    # amarillo
-    (0,   255,   0),    # verde
-    (255, 0,     0),    # azul
-    (255, 0,   255),    # magenta
-    (0,   255, 200),    # cian
+    (255, 255, 255), (0, 0, 255), (0, 165, 255), (0, 255, 255),
+    (0, 255, 0), (255, 0, 0), (255, 0, 255), (0, 255, 200)
 ]
 NOMBRES_COLORES = [
     "Blanco","Rojo","Naranja","Amarillo","Verde","Azul","Magenta","Cian"
 ]
-
-GROSOR_INICIAL  = 8
+GROSOR_INICIAL  = 10
 GROSOR_MIN      = 2
 GROSOR_MAX      = 50
 GROSOR_PASO     = 3
-GROSOR_BORRADOR = 40
-ALPHA_LIENZO    = 0.75
+GROSOR_BORRADOR = 45
+ALPHA_LIENZO    = 0.80
 
-# Botones — hover dwell time (frames para activar sin pinch)
-FRAMES_HOVER    = 25      # ~0.83s a 30fps
+# Gestos
+GESTO_INDICE   = "INDICE"
+GESTO_PINCH    = "PINCH"
+GESTO_VICTORIA = "VICTORIA"
+GESTO_DOS_JUNTOS = "DOS JUNTOS"
+GESTO_PUÑO     = "PUÑO"
+GESTO_OTRO     = "OTRO"
 
-# Dimensiones de la barra de botones
-BTN_X       = 10          # margen izquierdo
-BTN_W       = 130         # ancho de cada botón
-BTN_H       = 48          # alto de cada botón
-BTN_GAP     = 6           # separación entre botones
-BTN_RADIO   = 8           # radio de esquinas redondeadas
-
-FUENTE         = cv2.FONT_HERSHEY_SIMPLEX
+# UI de botones
+BTN_X = 10
+BTN_W = 140
+BTN_H = 48
+BTN_GAP = 6
+BTN_RADIO = 8
+FUENTE = cv2.FONT_HERSHEY_SIMPLEX
 CONEXIONES_MANO = mp_vision.HandLandmarksConnections.HAND_CONNECTIONS
 
 
@@ -116,11 +100,6 @@ CONEXIONES_MANO = mp_vision.HandLandmarksConnections.HAND_CONNECTIONS
 # ─────────────────────────────────────────────────────
 
 class BotonVirtual:
-    """
-    Botón rectangular con sistema de dwell (permanencia del dedo).
-    Se activa cuando el índice está dentro del área BTN_HOVER_FRAMES
-    frames consecutivos.
-    """
     def __init__(self, x, y, w, h, etiqueta, accion_id,
                  color_normal=(40, 40, 40),
                  color_hover=(60, 80, 110),
@@ -138,22 +117,31 @@ class BotonVirtual:
         self.color_texto  = color_texto
 
         self.hover_frames  = 0
-        self.activo        = False      # se activa un frame, luego se limpia
-        self.ultimo_activo = False      # para animación de feedback
+        self.activo        = False
+        self.ultimo_activo = False
 
     def contiene(self, cx, cy):
         return (self.x <= cx <= self.x + self.w and
                 self.y <= cy <= self.y + self.h)
 
-    def actualizar(self, cx, cy):
-        """Llama cada frame con la posición del índice."""
+    def actualizar(self, cx, cy, pinch_nuevo):
+        """Si se hace pinch nuevo sobre el botón, hace clic inmediato."""
         self.activo = False
-        if self.contiene(cx, cy):
-            self.hover_frames += 1
-            if self.hover_frames >= FRAMES_HOVER:
+        hover = self.contiene(cx, cy)
+        
+        if hover:
+            # Activación inmediata por PINCH
+            if pinch_nuevo:
                 self.activo       = True
                 self.ultimo_activo = True
-                self.hover_frames = 0    # reiniciar para evitar activación continua
+                self.hover_frames = 0
+            else:
+                # Activación por tiempo (respaldo)
+                self.hover_frames += 1
+                if self.hover_frames >= FRAMES_HOVER:
+                    self.activo       = True
+                    self.ultimo_activo = True
+                    self.hover_frames = 0
         else:
             self.hover_frames  = 0
             self.ultimo_activo = False
@@ -166,11 +154,9 @@ class BotonVirtual:
         x, y, w, h = self.x, self.y, self.w, self.h
         progreso = self.progreso_hover
 
-        # Fondo del botón
         if self.ultimo_activo:
             bg_color = self.color_activo
         elif progreso > 0:
-            # Interpolar entre normal y hover
             bg_color = tuple(
                 int(self.color_normal[i] * (1 - progreso) +
                     self.color_hover[i]  * progreso)
@@ -179,36 +165,28 @@ class BotonVirtual:
         else:
             bg_color = color_override if color_override else self.color_normal
 
-        # Rectángulo redondeado (simulado con círculos en esquinas)
         _rect_redondeado(frame, (x, y), (x + w, y + h), bg_color, BTN_RADIO, -1)
 
-        # Borde
         borde_color = (100, 160, 220) if progreso > 0 else (70, 70, 70)
         _rect_redondeado(frame, (x, y), (x + w, y + h), borde_color, BTN_RADIO, 1)
 
-        # Barra de progreso dwell (parte inferior del botón)
         if 0 < progreso < 1.0:
             bx1 = x + 2
             bx2 = x + 2 + int((w - 4) * progreso)
             by  = y + h - 5
             cv2.line(frame, (bx1, by), (bx2, by), (0, 200, 255), 3)
 
-        # Texto
-        texto = self.etiqueta
-        ts    = cv2.getTextSize(texto, FUENTE, 0.50, 1)[0]
-        tx    = x + (w - ts[0]) // 2
-        ty    = y + (h + ts[1]) // 2
-        cv2.putText(frame, texto, (tx, ty), FUENTE, 0.50,
+        ts = cv2.getTextSize(self.etiqueta, FUENTE, 0.50, 1)[0]
+        tx = x + (w - ts[0]) // 2
+        ty = y + (h + ts[1]) // 2
+        cv2.putText(frame, self.etiqueta, (tx, ty), FUENTE, 0.50,
                     self.color_texto, 1, cv2.LINE_AA)
 
-
 def _rect_redondeado(frame, pt1, pt2, color, radio, grosor):
-    """Dibuja un rectángulo con esquinas redondeadas."""
     x1, y1 = pt1
     x2, y2 = pt2
     r = radio
-
-    if grosor == -1:  # relleno
+    if grosor == -1:
         cv2.rectangle(frame, (x1 + r, y1), (x2 - r, y2), color, -1)
         cv2.rectangle(frame, (x1, y1 + r), (x2, y2 - r), color, -1)
         cv2.circle(frame, (x1 + r, y1 + r), r, color, -1)
@@ -225,263 +203,171 @@ def _rect_redondeado(frame, pt1, pt2, color, radio, grosor):
         cv2.ellipse(frame, (x1 + r, y2 - r), (r, r),  90, 0, 90, color, grosor)
         cv2.ellipse(frame, (x2 - r, y2 - r), (r, r),   0, 0, 90, color, grosor)
 
-
-# ─────────────────────────────────────────────────────
-# CONSTRUCCIÓN DE LA BARRA DE BOTONES
-# ─────────────────────────────────────────────────────
-
 def construir_botones():
-    """Crea la lista de BotonVirtual para la barra lateral izquierda."""
     botones = []
     y = 10
-
-    def agregar(etiqueta, accion_id, color_n=(35,35,35),
-                color_h=(55,80,110), color_a=(0,180,80)):
+    def agregar(etiq, acc_id, color_n=(35,35,35), color_h=(55,80,110), color_a=(0,180,80)):
         nonlocal y
-        b = BotonVirtual(BTN_X, y, BTN_W, BTN_H,
-                         etiqueta, accion_id,
-                         color_normal=color_n,
-                         color_hover=color_h,
-                         color_activo=color_a)
+        b = BotonVirtual(BTN_X, y, BTN_W, BTN_H, etiq, acc_id, color_n, color_h, color_a)
         botones.append(b)
         y += BTN_H + BTN_GAP
         return b
-
-    # Modo dibujo
-    agregar("✏  DIBUJAR", "toggle_dibujo",
-            color_h=(40, 100, 50), color_a=(0, 200, 80))
-    agregar("⬜  BORRADOR", "toggle_borrador",
-            color_h=(70, 70, 70),  color_a=(160, 160, 160))
-    agregar("🗑  LIMPIAR",  "limpiar",
-            color_h=(120, 40, 40), color_a=(200, 60, 60))
-
-    y += 8  # separador
-
-    # Grosor
-    agregar("▲  GROSOR+", "grosor_mas",
-            color_h=(50, 80, 50),  color_a=(80, 180, 80))
-    agregar("▼  GROSOR-", "grosor_menos",
-            color_h=(50, 80, 50),  color_a=(80, 180, 80))
-
-    y += 8  # separador
-
-    # Colores
+    
+    agregar("🗑  LIMPIAR",  "limpiar", color_h=(120, 40, 40), color_a=(200, 60, 60))
+    y += 8
+    agregar("▲  GROSOR+", "grosor_mas", color_h=(50, 80, 50), color_a=(80, 180, 80))
+    agregar("▼  GROSOR-", "grosor_menos", color_h=(50, 80, 50), color_a=(80, 180, 80))
+    y += 8
     for i, color in enumerate(PALETA_COLORES):
-        b = BotonVirtual(
-            BTN_X, y, BTN_W, BTN_H,
-            f"  {NOMBRES_COLORES[i]}", f"color_{i}",
-            color_normal=tuple(max(0, c // 4) for c in color),
-            color_hover =tuple(c // 2 for c in color),
-            color_activo=color,
-            color_texto =(255, 255, 255),
-        )
+        b = BotonVirtual(BTN_X, y, BTN_W, BTN_H, f"  {NOMBRES_COLORES[i]}", f"color_{i}",
+                         color_normal=tuple(max(0, c//4) for c in color),
+                         color_hover=tuple(c//2 for c in color),
+                         color_activo=color, color_texto=(255,255,255))
         botones.append(b)
         y += BTN_H + BTN_GAP
-
     return botones
+
+def dibujar_fondo_barra(frame, n_botones):
+    alto_barra = n_botones * (BTN_H + BTN_GAP) + 20
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (BTN_X + BTN_W + 8, alto_barra), (10, 10, 10), -1)
+    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
 
 
 # ─────────────────────────────────────────────────────
-# DETECCIÓN DE GESTOS (del paso 7)
+# DETECCIÓN DE GESTOS
 # ─────────────────────────────────────────────────────
 
 def dist(a, b):
     return math.hypot(a.x - b.x, a.y - b.y)
 
+def _dedo_extendido(lm, punta, pip):
+    """True si la punta está más lejos de la muñeca que la art. intermedia (PIP)."""
+    return dist(lm[punta], lm[0]) > dist(lm[pip], lm[0])
 
-def detectar_pinch(lm):
-    return dist(lm[4], lm[8]) < UMBRAL_PINCH
+def clasificar_gesto(lm) -> str:
+    ext_pulgar  = dist(lm[4], lm[0]) > dist(lm[2], lm[0])
+    ext_indice  = _dedo_extendido(lm, 8,  6)
+    ext_medio   = _dedo_extendido(lm, 12, 10)
+    ext_anular  = _dedo_extendido(lm, 16, 14)
+    ext_menique = _dedo_extendido(lm, 20, 18)
+    d_pinch        = dist(lm[4], lm[8])
+    d_indice_medio = dist(lm[8], lm[12])
 
+    if d_pinch < UMBRAL_PINCH:
+        return GESTO_PINCH
+    if not ext_indice and not ext_medio and not ext_anular and not ext_menique:
+        return GESTO_PUÑO
+    if ext_indice and ext_medio and not ext_anular and not ext_menique:
+        if d_indice_medio < 0.055:  # dedos pegados
+            return GESTO_DOS_JUNTOS
+        else:                       # dedos separados (V)
+            return GESTO_VICTORIA
+    if ext_indice and not ext_medio and not ext_anular and not ext_menique:
+        return GESTO_INDICE
+    return GESTO_OTRO
 
-class EstabilizadorPinch:
-    def __init__(self, n=FRAMES_CONFIRMACION):
-        self.n          = n
-        self.contador   = 0
-        self.confirmado = False
-        self.nuevo      = False
-
-    def actualizar(self, es_pinch):
+class Estabilizador:
+    GESTOS_DISPARO = {GESTO_VICTORIA}
+    def __init__(self, n=FRAMES_ESTABLE):
+        self.n = n
+        self.gesto_bruto = GESTO_OTRO
+        self.contador = 0
+        self.confirmado = GESTO_OTRO
+        self.disparo = False
         self.nuevo = False
-        if es_pinch:
-            self.contador += 1
+    def actualizar(self, gesto_nuevo):
+        self.disparo = False
+        self.nuevo   = False
+        if gesto_nuevo == self.gesto_bruto:
+            self.contador = min(self.contador + 1, self.n)
         else:
-            self.contador = 0
-            self.confirmado = False
-
-        if self.contador >= self.n and not self.confirmado:
-            self.confirmado = True
-            self.nuevo      = True
-
+            self.gesto_bruto = gesto_nuevo
+            self.contador = 1
+        
+        nuevo_confirmado = self.gesto_bruto if self.contador >= self.n else self.confirmado
+        
+        if nuevo_confirmado != self.confirmado:
+            self.confirmado = nuevo_confirmado
+            self.nuevo = True
+            if nuevo_confirmado in self.GESTOS_DISPARO:
+                self.disparo = True
         return self.confirmado
 
 
 # ─────────────────────────────────────────────────────
-# UTILIDADES
+# UI Y UTILIDADES
 # ─────────────────────────────────────────────────────
 
+def procesar_accion(accion_id, estado, lienzo):
+    if accion_id == "limpiar":
+        lienzo[:] = 0
+        print("  [BTN] Lienzo limpiado.")
+    elif accion_id == "grosor_mas":
+        estado["grosor"] = min(estado["grosor"] + GROSOR_PASO, GROSOR_MAX)
+    elif accion_id == "grosor_menos":
+        estado["grosor"] = max(estado["grosor"] - GROSOR_PASO, GROSOR_MIN)
+    elif accion_id.startswith("color_"):
+        estado["idx_color"] = int(accion_id.split("_")[1])
+
 def verificar_modelo():
-    if os.path.exists(RUTA_MODELO):
-        print(f"  Modelo encontrado: {RUTA_MODELO}")
-        return True
+    if os.path.exists(RUTA_MODELO): return True
     import urllib.request
     print("  Descargando modelo...")
     os.makedirs(os.path.dirname(RUTA_MODELO), exist_ok=True)
     try:
         urllib.request.urlretrieve(URL_MODELO, RUTA_MODELO)
-        print(f"  [OK] Modelo descargado.")
         return True
-    except Exception as e:
-        print(f"  [ERROR] {e}")
-        return False
-
-
-def crear_detector():
-    options = mp_vision.HandLandmarkerOptions(
-        base_options=mp_python.BaseOptions(model_asset_path=RUTA_MODELO),
-        running_mode=mp_vision.RunningMode.VIDEO,
-        num_hands=MAX_MANOS,
-        min_hand_detection_confidence=MIN_CONFIANZA_DETECCION,
-        min_hand_presence_confidence=MIN_PRESENCIA,
-        min_tracking_confidence=MIN_CONFIANZA_TRACKING,
-    )
-    return mp_vision.HandLandmarker.create_from_options(options)
-
+    except: return False
 
 def iniciar_camara():
     cap = cv2.VideoCapture(CAMARA_ID)
-    if not cap.isOpened():
-        print(f"[ERROR] Cámara {CAMARA_ID} no disponible")
-        return None
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  ANCHO)
+    if not cap.isOpened(): return None
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, ANCHO)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, ALTO)
-    cap.set(cv2.CAP_PROP_FPS,          FPS_OBJETIVO)
-    for _ in range(15):
-        cap.read()
-
-    aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    cap.set(cv2.CAP_PROP_FPS, FPS_OBJETIVO)
+    for _ in range(15): cap.read()
     print("=" * 56)
-    print("  TouchWall — Paso 8: Botones Virtuales")
+    print("  TouchWall — Paso 8: Gestos + Botones (Integrados)")
     print("=" * 56)
-    print(f"  Cámara  : {aw}x{ah} @ {fps:.0f}fps")
-    print(f"  Dwell   : {FRAMES_HOVER} frames (~{FRAMES_HOVER/fps:.1f}s) para activar")
-    print("=" * 56)
-    print("  Apunta el dedo al botón y espera la barra de carga")
-    print("  PINCH = toggle dibujo")
+    print("  👆 ÍNDICE   = Mover cursor (hover en botones)")
+    print("  🤏 PINCH    = Clic (en botón) o Dibujar (en lienzo)")
+    print("  ✌️ JUNTOS   = Borrador (Índice y Medio pegados)")
+    print("  ✌️ VICTORIA = Cambiar color (Índice y Medio separados)")
+    print("  ✊ PUÑO     = Pausa")
     print("=" * 56)
     return cap
 
+def lerp(a, b, f): return a + (b - a) * f
 
-def lerp(actual, objetivo, factor):
-    return actual + (objetivo - actual) * factor
+def dibujar_esqueleto(frame, lm, alto, ancho):
+    p = [(int(l.x * ancho), int(l.y * alto)) for l in lm]
+    for c in CONEXIONES_MANO:
+        if c.start < len(p) and c.end < len(p):
+            cv2.line(frame, p[c.start], p[c.end], (80, 80, 80), 1)
+    for i, (cx, cy) in enumerate(p):
+        cv2.circle(frame, (cx, cy), 3, (120, 120, 120), -1)
 
+def dibujar_cursor(frame, cx, cy, gesto, color_pincel):
+    if gesto == GESTO_PINCH:
+        cv2.circle(frame, (cx, cy), 16, color_pincel, 2)
+        cv2.circle(frame, (cx, cy), 7, color_pincel, -1)
+    elif gesto == GESTO_DOS_JUNTOS:
+        cv2.circle(frame, (cx, cy), GROSOR_BORRADOR, (150, 150, 150), 2)
+    elif gesto == GESTO_INDICE:
+        cv2.circle(frame, (cx, cy), 10, (0, 220, 255), 2)
+        cv2.circle(frame, (cx, cy), 4, (0, 220, 255), -1)
+    else:
+        cv2.circle(frame, (cx, cy), 8, (100, 100, 100), 2)
 
-def guardar_captura(frame):
-    carpeta = "capturas"
-    os.makedirs(carpeta, exist_ok=True)
-    ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    ruta = os.path.join(carpeta, f"captura_paso8_{ts}.png")
-    cv2.imwrite(ruta, frame)
-    print(f"  [OK] Captura guardada: {ruta}")
-
-
-# ─────────────────────────────────────────────────────
-# DIBUJO UI
-# ─────────────────────────────────────────────────────
-
-def dibujar_esqueleto_tenue(frame, lm, alto, ancho):
-    puntos = [(int(l.x * ancho), int(l.y * alto)) for l in lm]
-    for con in CONEXIONES_MANO:
-        s, e = con.start, con.end
-        if s < len(puntos) and e < len(puntos):
-            cv2.line(frame, puntos[s], puntos[e], (55, 55, 55), 1)
-    for i, (cx, cy) in enumerate(puntos):
-        if i != INDICE_LM:
-            cv2.circle(frame, (cx, cy), 3, (75, 75, 75), -1)
-
-
-def dibujar_cursor_indice(frame, cx, cy, modo_dibujo, color_pincel):
-    color = color_pincel if modo_dibujo else (200, 200, 200)
-    cv2.circle(frame, (cx, cy), 16, color, 2)
-    cv2.circle(frame, (cx, cy),  7, color, -1)
-    cv2.line(frame, (cx - 22, cy), (cx + 22, cy), color, 1)
-    cv2.line(frame, (cx, cy - 22), (cx, cy + 22), color, 1)
-
-
-def dibujar_hud(frame, fps, modo_dibujo, borrando, grosor, nombre_color):
-    alto_f, ancho_f = frame.shape[:2]
-    color = (0, 220, 100) if modo_dibujo else (100, 100, 220)
-
-    # Panel inferior derecho
-    panel_x = BTN_X + BTN_W + 10
-    panel_w = ancho_f - panel_x - 10
+def dibujar_hud(frame, fps, gesto, color_nom, grosor):
     overlay = frame.copy()
-    cv2.rectangle(overlay, (panel_x, alto_f - 50),
-                  (ancho_f - 10, alto_f - 5), (0, 0, 0), -1)
+    cv2.rectangle(overlay, (0, ALTO - 50), (ANCHO, ALTO), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.45, frame, 0.55, 0, frame)
-
-    estado = "DIBUJANDO" if modo_dibujo else ("BORRADOR" if borrando else "PUNTERO")
-    cv2.putText(frame,
-                f"FPS:{fps:.0f}  |  {estado}  |  Color:{nombre_color}  |  Grosor:{grosor}px",
-                (panel_x + 8, alto_f - 20), FUENTE, 0.52, color, 1)
-
-    cv2.putText(frame,
-                "[d/SPC]toggle [b]borrador [c]color [+/-]grosor [r]reset [s]captura [q]salir",
-                (panel_x + 8, alto_f - 8), FUENTE, 0.38, (120, 120, 120), 1)
-
-    # LIVE
-    cv2.circle(frame, (ancho_f - 30, 25), 8, (0, 0, 255), -1)
-    cv2.putText(frame, "LIVE", (ancho_f - 70, 32), FUENTE, 0.55, (0, 0, 255), 1)
-
-
-def dibujar_fondo_barra(frame, n_botones):
-    """Fondo semitransparente detrás de la barra de botones."""
-    alto_barra = n_botones * (BTN_H + BTN_GAP) + 20
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (BTN_X + BTN_W + 8, alto_barra),
-                  (10, 10, 10), -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
-
-
-# ─────────────────────────────────────────────────────
-# PROCESAR ACCIÓN DE BOTÓN
-# ─────────────────────────────────────────────────────
-
-def procesar_accion(accion_id, estado, lienzo):
-    """
-    Ejecuta la acción del botón activado.
-    `estado` es un dict mutable con las variables de la pizarra.
-    """
-    if accion_id == "toggle_dibujo":
-        estado["modo_dibujo"] = not estado["modo_dibujo"]
-        estado["borrando"]    = False
-        estado["cx_prev"] = estado["cy_prev"] = None
-        print(f"  [BTN] Dibujo: {'ACTIVO' if estado['modo_dibujo'] else 'PAUSADO'}")
-
-    elif accion_id == "toggle_borrador":
-        estado["borrando"]    = not estado["borrando"]
-        estado["modo_dibujo"] = False
-        estado["cx_prev"] = estado["cy_prev"] = None
-        print(f"  [BTN] Borrador: {'ON' if estado['borrando'] else 'OFF'}")
-
-    elif accion_id == "limpiar":
-        lienzo[:] = 0
-        estado["cx_prev"] = estado["cy_prev"] = None
-        print("  [BTN] Lienzo limpiado.")
-
-    elif accion_id == "grosor_mas":
-        estado["grosor"] = min(estado["grosor"] + GROSOR_PASO, GROSOR_MAX)
-        print(f"  [BTN] Grosor: {estado['grosor']}px")
-
-    elif accion_id == "grosor_menos":
-        estado["grosor"] = max(estado["grosor"] - GROSOR_PASO, GROSOR_MIN)
-        print(f"  [BTN] Grosor: {estado['grosor']}px")
-
-    elif accion_id.startswith("color_"):
-        idx = int(accion_id.split("_")[1])
-        estado["idx_color"] = idx
-        print(f"  [BTN] Color: {NOMBRES_COLORES[idx]}")
+    texto = f"FPS:{fps:.0f}  |  Gesto: {gesto}  |  Color: {color_nom}  |  Grosor: {grosor}px"
+    cv2.putText(frame, texto, (BTN_X + BTN_W + 20, ALTO - 20), FUENTE, 0.6, (200, 200, 200), 1)
+    cv2.circle(frame, (ANCHO - 30, 25), 8, (0, 0, 255), -1)
+    cv2.putText(frame, "LIVE", (ANCHO - 70, 32), FUENTE, 0.55, (0, 0, 255), 1)
 
 
 # ─────────────────────────────────────────────────────
@@ -489,172 +375,128 @@ def procesar_accion(accion_id, estado, lienzo):
 # ─────────────────────────────────────────────────────
 
 def main():
-    if not verificar_modelo():
-        return
-
+    if not verificar_modelo(): return
     cap = iniciar_camara()
-    if cap is None:
-        return
+    if not cap: return
 
-    detector = crear_detector()
-    estabiliz = EstabilizadorPinch()
-    botones   = construir_botones()
+    options = mp_vision.HandLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path=RUTA_MODELO),
+        running_mode=mp_vision.RunningMode.VIDEO,
+        num_hands=1
+    )
+    detector = mp_vision.HandLandmarker.create_from_options(options)
+    estabiliz = Estabilizador()
+    botones = construir_botones()
 
-    # Estado de pizarra (dict mutable para pasar por referencia)
     lienzo = np.zeros((ALTO, ANCHO, 3), dtype=np.uint8)
-    estado = {
-        "idx_color":  0,
-        "grosor":     GROSOR_INICIAL,
-        "modo_dibujo": False,
-        "borrando":   False,
-        "cx_prev":    None,
-        "cy_prev":    None,
-    }
-
+    estado = {"idx_color": 0, "grosor": GROSOR_INICIAL}
+    
     cx_suave = float(ANCHO // 2)
-    cy_suave = float(ALTO  // 2)
+    cy_suave = float(ALTO // 2)
+    cx_prev = cy_prev = None
 
+    tiempo_inicio = cv2.getTickCount()
     contador_frames = 0
-    fps_mostrar     = 0.0
-    tiempo_inicio   = cv2.getTickCount()
-    timestamp_ms    = 0
+    fps = 0.0
+    ts_ms = 0
 
     while True:
         ret, frame = cap.read()
-        if not ret:
-            print("[AVISO] No se pudo leer el frame.")
-            break
-
+        if not ret: break
         frame = cv2.flip(frame, 1)
-        alto_frame, ancho_frame = frame.shape[:2]
 
-        # ── MediaPipe ──
+        ts_ms += 33
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        mp_image  = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        timestamp_ms += 33
-        resultado = detector.detect_for_video(mp_image, timestamp_ms)
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        res = detector.detect_for_video(mp_img, ts_ms)
 
         cx_int = cy_int = None
+        gesto_final = GESTO_OTRO
+        sobre_boton = False
 
-        if resultado.hand_landmarks:
-            lm = resultado.hand_landmarks[0]
-            dibujar_esqueleto_tenue(frame, lm, alto_frame, ancho_frame)
+        if res.hand_landmarks:
+            lm = res.hand_landmarks[0]
+            cx_suave = lerp(cx_suave, lm[INDICE_LM].x * ANCHO, LERP_FACTOR)
+            cy_suave = lerp(cy_suave, lm[INDICE_LM].y * ALTO, LERP_FACTOR)
+            cx_int, cy_int = int(cx_suave), int(cy_suave)
 
-            # Posición suavizada del índice
-            cx_suave = lerp(cx_suave, lm[INDICE_LM].x * ancho_frame, LERP_FACTOR)
-            cy_suave = lerp(cy_suave, lm[INDICE_LM].y * alto_frame,  LERP_FACTOR)
-            cx_int   = int(cx_suave)
-            cy_int   = int(cy_suave)
+            gesto_raw = clasificar_gesto(lm)
+            gesto_final = estabiliz.actualizar(gesto_raw)
+            
+            pinch_nuevo = (gesto_final == GESTO_PINCH and estabiliz.nuevo)
 
-            # Pinch → toggle dibujo
-            estabiliz.actualizar(detectar_pinch(lm))
-            if estabiliz.nuevo:
-                procesar_accion("toggle_dibujo", estado, lienzo)
+            # 1) Disparo: VICTORIA (Cambiar color)
+            if estabiliz.disparo and gesto_final == GESTO_VICTORIA:
+                estado["idx_color"] = (estado["idx_color"] + 1) % len(PALETA_COLORES)
 
-            # Actualizar botones y procesar activaciones
+            # 2) Procesar botones
             for btn in botones:
-                btn.actualizar(cx_int, cy_int)
+                btn.actualizar(cx_int, cy_int, pinch_nuevo)
+                if btn.contiene(cx_int, cy_int):
+                    sobre_boton = True
                 if btn.activo:
                     procesar_accion(btn.accion_id, estado, lienzo)
 
-            # Trazar en el lienzo
-            if estado["modo_dibujo"] and not estado["borrando"]:
-                color_actual = PALETA_COLORES[estado["idx_color"]]
-                if estado["cx_prev"] is not None:
-                    cv2.line(lienzo,
-                             (estado["cx_prev"], estado["cy_prev"]),
-                             (cx_int, cy_int),
-                             color_actual, estado["grosor"])
+            # 3) Interacción con lienzo (solo si no estamos sobre un botón ni en pausa)
+            if gesto_final != GESTO_PUÑO:
+                if gesto_final == GESTO_PINCH and not sobre_boton:
+                    if cx_prev is not None:
+                        cv2.line(lienzo, (cx_prev, cy_prev), (cx_int, cy_int),
+                                 PALETA_COLORES[estado["idx_color"]], estado["grosor"])
+                    else:
+                        cv2.circle(lienzo, (cx_int, cy_int), estado["grosor"]//2, 
+                                   PALETA_COLORES[estado["idx_color"]], -1)
+                    cx_prev, cy_prev = cx_int, cy_int
+                
+                elif gesto_final == GESTO_DOS_JUNTOS and not sobre_boton:
+                    cv2.circle(lienzo, (cx_int, cy_int), GROSOR_BORRADOR, (0,0,0), -1)
+                    cx_prev, cy_prev = cx_int, cy_int
                 else:
-                    cv2.circle(lienzo, (cx_int, cy_int),
-                               estado["grosor"] // 2, color_actual, -1)
-                estado["cx_prev"], estado["cy_prev"] = cx_int, cy_int
-
-            elif estado["borrando"]:
-                cv2.circle(lienzo, (cx_int, cy_int), GROSOR_BORRADOR, (0, 0, 0), -1)
-                estado["cx_prev"], estado["cy_prev"] = cx_int, cy_int
-
+                    cx_prev, cy_prev = None, None
             else:
-                estado["cx_prev"] = estado["cy_prev"] = None
+                cx_prev, cy_prev = None, None
 
+            dibujar_esqueleto(frame, lm, ALTO, ANCHO)
         else:
-            estado["cx_prev"] = estado["cy_prev"] = None
-            for btn in botones:
-                btn.actualizar(-1, -1)    # fuera de todos los botones
+            estabiliz.actualizar(GESTO_OTRO)
+            cx_prev, cy_prev = None, None
+            for btn in botones: btn.actualizar(-1, -1, False)
 
-        # ── Componer lienzo + video ──
-        mascara = cv2.cvtColor(lienzo, cv2.COLOR_BGR2GRAY)
-        _, mascara = cv2.threshold(mascara, 1, 255, cv2.THRESH_BINARY)
-        frame_final = frame.copy()
-        idx = mascara > 0
-        frame_final[idx] = np.clip(
-            lienzo[idx] * ALPHA_LIENZO + frame[idx] * (1.0 - ALPHA_LIENZO),
-            0, 255
-        ).astype(np.uint8)
+        # ── Composición y UI ──
+        mask = cv2.cvtColor(lienzo, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
+        idx = mask > 0
+        frame[idx] = np.clip(lienzo[idx] * ALPHA_LIENZO + frame[idx] * (1 - ALPHA_LIENZO), 0, 255).astype(np.uint8)
 
-        # ── Barra de botones ──
-        dibujar_fondo_barra(frame_final, len(botones))
-        color_pincel = PALETA_COLORES[estado["idx_color"]]
+        dibujar_fondo_barra(frame, len(botones))
         for btn in botones:
-            # Los botones de color muestran su propio color como fondo cuando están inactivos
-            if btn.accion_id.startswith("color_"):
-                idx_c = int(btn.accion_id.split("_")[1])
-                c = PALETA_COLORES[idx_c]
-                override = tuple(max(20, v // 3) for v in c)
-                btn.dibujar(frame_final, override)
-            else:
-                btn.dibujar(frame_final)
+            override = tuple(max(20, c//3) for c in PALETA_COLORES[int(btn.accion_id.split("_")[1])]) if btn.accion_id.startswith("color_") else None
+            btn.dibujar(frame, override)
 
-        # ── Cursor del índice ──
         if cx_int is not None:
-            dibujar_cursor_indice(frame_final, cx_int, cy_int,
-                                  estado["modo_dibujo"], color_pincel)
+            dibujar_cursor(frame, cx_int, cy_int, gesto_final, PALETA_COLORES[estado["idx_color"]])
 
-        # ── HUD ──
-        dibujar_hud(frame_final, fps_mostrar,
-                    estado["modo_dibujo"], estado["borrando"],
-                    estado["grosor"], NOMBRES_COLORES[estado["idx_color"]])
+        if gesto_final == GESTO_PUÑO:
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (0, 0), (ANCHO, ALTO), (0,0,0), -1)
+            cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
+            cv2.putText(frame, "PAUSADO ✊", (ANCHO//2 - 120, ALTO//2), FUENTE, 1.4, (100,100,100), 3)
 
-        # ── FPS ──
         contador_frames += 1
         if contador_frames % 30 == 0:
-            tf  = cv2.getTickCount()
-            seg = (tf - tiempo_inicio) / cv2.getTickFrequency()
-            fps_mostrar   = 30 / seg
-            tiempo_inicio = cv2.getTickCount()
+            tf = cv2.getTickCount()
+            fps = 30 / ((tf - tiempo_inicio) / cv2.getTickFrequency())
+            tiempo_inicio = tf
             contador_frames = 0
-
-        cv2.imshow(NOMBRE_VENTANA, frame_final)
-
-        # ── Teclado (respaldo) ──
-        tecla = cv2.waitKey(1) & 0xFF
-        if tecla == ord('q'):
-            print("\n  Cerrando TouchWall... Hasta luego!")
-            break
-        elif tecla in (ord(' '), ord('d')):
-            procesar_accion("toggle_dibujo", estado, lienzo)
-        elif tecla == ord('b'):
-            procesar_accion("toggle_borrador", estado, lienzo)
-        elif tecla == ord('r'):
-            procesar_accion("limpiar", estado, lienzo)
-        elif tecla == ord('c'):
-            estado["idx_color"] = (estado["idx_color"] + 1) % len(PALETA_COLORES)
-            print(f"  Color: {NOMBRES_COLORES[estado['idx_color']]}")
-        elif tecla in (ord('+'), ord('=')):
-            procesar_accion("grosor_mas", estado, lienzo)
-        elif tecla == ord('-'):
-            procesar_accion("grosor_menos", estado, lienzo)
-        elif tecla == ord('s'):
-            guardar_captura(frame_final)
+            
+        dibujar_hud(frame, fps, gesto_final, NOMBRES_COLORES[estado["idx_color"]], estado["grosor"])
+        
+        cv2.imshow(NOMBRE_VENTANA, frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'): break
 
     detector.close()
     cap.release()
     cv2.destroyAllWindows()
-
-
-# ─────────────────────────────────────────────────────
-# ENTRY POINT
-# ─────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     main()
