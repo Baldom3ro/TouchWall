@@ -1,0 +1,27 @@
+{
+    "gestos": {
+        "Mover cursor": true,
+        "Click": true,
+        "Doble click": false,
+        "Scroll": true,
+        "Zoom": true,
+        "Arrastrar": true
+    },
+    "avanzado": {
+        "Sensibilidad": 55,
+        "Suavizado": 75,
+        "Velocidad": 35
+    },
+    "general": {
+        "Tema": "Oscuro",
+        "iniciar_windows": false,
+        "abrir_minimizado": false,
+        "notificaciones": true
+    },
+    "camara": {
+        "nombre": "Buscando c\u00e1maras...",
+        "Brillo": 50,
+        "Contraste": 50,
+        "exposicion_auto": true
+    }
+}

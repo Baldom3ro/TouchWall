@@ -55,3 +55,84 @@ Para la fase inicial, utilizaremos los recursos mínimos indispensables para que
 *   **Entorno Físico**:
     *   Un espacio bien iluminado para facilitar la detección de la webcam y evitar ruidos en el sensor de imagen.
 
+---
+
+## 🏗️ Arquitectura
+
+### 4. Gestor de Configuraciones (Settings UI)
+1. **Paso 1: Ajuste Fino del Tracking.** Resolver la sensibilidad extrema del cursor y facilitar la activación de clics ajustando los parámetros matemáticos y de estabilización.
+2. **Paso 2: Menú de Configuraciones UI.** Crear las pestañas de configuración usando `CustomTkinter` (General, Cámara, Proyección, Gestos, Avanzado, Acerca de).
+3. **Paso 3: Selector Dinámico de Cámaras.** Implementar código OpenCV para detectar cámaras disponibles y mostrar un menú desplegable en la interfaz.
+4. **Paso 4: Controles de Gestos.** Añadir *checkboxes* para activar/desactivar individualmente: Mover cursor, Click, Doble Click, Scroll, Zoom y Arrastrar.
+5. **Paso 5: Sliders de Sensibilidad.** Añadir barras ajustables (Sensibilidad, Suavizado, Velocidad) que modifiquen en tiempo real el comportamiento de la IA.
+6. **Paso 6: Persistencia de Ajustes.** Guardar todas estas opciones en un archivo `config.json` para que el sistema las recuerde al reiniciar.
+
+### 5. Empaquetado y Distribución
+- Compilar el proyecto entero (incluyendo el modelo `hand_landmarker.task` y la interfaz gráfica) usando `PyInstaller` para crear un ejecutable `.exe` standalone. módulos especializados:
+
+```text
+TouchWall/
+├── main.py                     # Punto de entrada
+├── requirements.txt
+├── README.md
+├── LICENSE
+│
+├── app/
+│   ├── __init__.py
+│   ├── ui/                     # Toda la interfaz (CustomTkinter)
+│   │   ├── main_window.py
+│   │   ├── calibration.py
+│   │   ├── settings.py
+│   │   ├── dialogs.py
+│   │   └── widgets.py
+│   ├── camera/                 # Captura de video
+│   │   ├── camera_manager.py
+│   │   ├── frame_processor.py
+│   │   └── calibration.py
+│   ├── tracking/               # Inteligencia artificial
+│   │   ├── hand_detector.py
+│   │   ├── finger_tracker.py
+│   │   ├── smoothing.py
+│   │   └── filters.py
+│   ├── gestures/               # Lógica de gestos
+│   │   ├── click.py
+│   │   ├── drag.py
+│   │   ├── scroll.py
+│   │   ├── zoom.py
+│   │   └── gesture_manager.py
+│   ├── projection/             # Homografía y mapeo
+│   │   ├── homography.py
+│   │   ├── coordinate_mapper.py
+│   │   ├── projector.py
+│   │   └── calibration.py
+│   ├── system/                 # Control del Sistema Operativo
+│   │   ├── mouse_controller.py
+│   │   ├── keyboard_controller.py
+│   │   ├── permissions.py
+│   │   └── monitor.py
+│   ├── config/                 # Configuraciones persistentes
+│   │   ├── config.py
+│   │   ├── constants.py
+│   │   └── default_config.json
+│   ├── resources/              # Archivos multimedia
+│   │   ├── icons/
+│   │   ├── images/
+│   │   ├── fonts/
+│   │   └── sounds/
+│   ├── models/                 # Modelos de Machine Learning
+│   │   └── hand_landmarker.task
+│   ├── utils/                  # Herramientas
+│   │   ├── logger.py
+│   │   ├── helpers.py
+│   │   └── math_utils.py
+│   └── data/                   # Archivos generados (como la matriz H)
+│       └── calibration.json
+│
+├── installer/                  # Recursos para InnoSetup o NSIS
+│   ├── setup.iss
+│   └── icon.ico
+├── build/                      # Creado por PyInstaller (ignorado)
+├── dist/                       # Creado por PyInstaller (ignorado)
+└── tests/                      # Tests unitarios
+```
+
