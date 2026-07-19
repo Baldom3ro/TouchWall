@@ -2,8 +2,8 @@
     "gestos": {
         "Mover cursor": true,
         "Click": true,
-        "Doble click": false,
-        "Scroll": true,
+        "Doble click": true,
+        "Scroll": false,
         "Zoom": true,
         "Arrastrar": true
     },
@@ -19,7 +19,7 @@
         "notificaciones": true
     },
     "camara": {
-        "nombre": "Buscando c\u00e1maras...",
+        "nombre": "0 - Camo",
         "Brillo": 50,
         "Contraste": 50,
         "exposicion_auto": true

@@ -136,3 +136,28 @@ TouchWall/
 └── tests/                      # Tests unitarios
 ```
 
+---
+
+## 🛠️ Registro de Optimizaciones y Solución de Errores (Fase 4)
+Durante la implementación de la Interfaz Gráfica y el Motor, se detectaron y resolvieron los siguientes retos técnicos:
+
+1. **Caída de Rendimiento (10 FPS limit):**
+   - **Problema:** OpenCV, por defecto, solicitaba video crudo (YUY2) a la cámara, lo que saturaba el ancho de banda del bus USB, limitando físicamente los FPS a 10.
+   - **Solución:** Se forzó a OpenCV a solicitar compresión por hardware (`MJPG`) usando `cv2.CAP_PROP_FOURCC`. Adicionalmente, se estableció la resolución de captura en **1280x720 (720p)**, y se redujo el tamaño del frame a 640x360 milisegundos antes de inyectarlo en MediaPipe. Esto alivió la carga del procesador y restableció el rendimiento a +30 FPS sin perder precisión.
+2. **Muro Invisible en PyAutoGUI:**
+   - **Problema:** El cursor físico del sistema chocaba con una pared invisible al llegar al 75% de la pantalla (1280x720 píxeles).
+   - **Solución:** Se eliminó la dependencia de la resolución estática de la cámara (`ANCHO`, `ALTO`) en `mouse_controller.py` y se implementó `pyautogui.size()` para leer dinámicamente los bordes reales del monitor de Windows, permitiendo usar el 100% de la superficie física.
+3. **Desajuste de Homografía (Ventana de Calibración 3/4):**
+   - **Problema:** Al capturar en 720p, la ventana negra de calibración se encogía, por lo que el usuario calibraba sus dedos sobre un cuadro interno, corrompiendo las matemáticas de la matriz de perspectiva.
+   - **Solución:** Se forzó la ampliación por software (`cv2.resize`) del lienzo de calibración usando `pyautogui.size()` justo antes de activar el Fullscreen, garantizando que los puntos rojos siempre coincidan con las esquinas del monitor físico.
+4. **Pausa Errónea (Puño Falso) al Apuntar:**
+   - **Problema:** Apuntar con el dedo índice (cerrando los otros 3 dedos) activaba la regla antigua de "3 dedos cerrados = Pausa".
+   - **Solución:** Se actualizó `gesture_manager.py` para exigir que los **4 dedos completos** estén cerrados para registrar el `GESTO_PUÑO`.
+5. **Gesto de Doble Clic:**
+   - **Solución:** Se integró un nuevo gesto híbrido (`d_double`) que mide la distancia de "pinch" entre el Pulgar y el dedo Medio, inyectando un doble clic ultrarrápido al SO.
+6. **Deadlock (Congelamiento) al cambiar Temas en Tkinter:**
+   - **Problema:** Cambiar de Modo Claro a Oscuro desde una ventana modal (`grab_set`) colapsaba el hilo de eventos de Tcl/Tk, congelando toda la interfaz gráfica y volviendo "invisibles" los botones.
+   - **Solución:** Se corrigió el color forzado de los botones (`text_color=("black", "white")`) y se programó la ventana de configuraciones para liberar los bloqueos modales ANTES de inyectar el nuevo tema al motor visual de CustomTkinter.
+7. **Arquitectura de Borradores (Drafts) en Configuraciones:**
+   - **Problema:** Los gestos y ajustes visuales se sobreescribían, la previsualización en vivo no guardaba estado, y la cámara no respetaba el menú desplegable.
+   - **Solución:** Se implementó un sistema inteligente de borradores (`config_borrador`). Los cambios ahora afectan al motor visual en tiempo real, pero si el usuario cierra la ventana, los cambios se descartan. Solo al presionar "Guardar Configuración" se realiza la escritura al archivo `config.json` y se recarga de forma limpia en el núcleo del sistema.

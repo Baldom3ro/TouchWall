@@ -104,7 +104,12 @@ class MainWindow(ctk.CTk):
 
     def _build_inactive_stats(self):
         self._add_stat_row(self.stats_frame, "Cámara", "● Lista", "gray")
-        self._add_stat_row(self.stats_frame, "Proyector", "● Sin Calibrar", "orange")
+        
+        if self.engine and self.engine.matriz_h is not None:
+            self._add_stat_row(self.stats_frame, "Proyector", "● Calibrado", "#00AA00")
+        else:
+            self._add_stat_row(self.stats_frame, "Proyector", "● Sin Calibrar", "orange")
+            
         self._add_stat_row(self.stats_frame, "Mano", "● Apagado", "gray")
         self._add_stat_row(self.stats_frame, "FPS", "--", ("black", "white"))
 
@@ -134,6 +139,7 @@ class MainWindow(ctk.CTk):
 
     def detener_sistema(self):
         self.engine.stop()
+        self.engine = TouchWallEngine(ui_callback=self.log_callback)
         self.is_active = False
         self._build_ui()
 

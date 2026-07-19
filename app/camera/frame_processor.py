@@ -23,7 +23,14 @@ class TouchWallEngine:
     def __init__(self, ui_callback=None):
         self.settings = load_settings()
         
-        self.camera = CameraManager(camera_id=CAMARA_ID, width=ANCHO, height=ALTO)
+        nombre_cam = self.settings.get("camara", {}).get("nombre", "")
+        cam_id = CAMARA_ID
+        if nombre_cam and "-" in nombre_cam:
+            try:
+                cam_id = int(nombre_cam.split("-")[0].strip())
+            except: pass
+            
+        self.camera = CameraManager(camera_id=cam_id, width=ANCHO, height=ALTO)
         self.detector = HandDetector()
         self.mouse = MouseController()
         
@@ -43,6 +50,7 @@ class TouchWallEngine:
         # Variables de Gestos
         self.mouse_presionado = False
         self.right_click_presionado = False
+        self.double_click_presionado = False
         self.zoom_presionado = False
         self.zoom_ref = 0
         self.scroll_activo = False
@@ -59,8 +67,6 @@ class TouchWallEngine:
         self.ui_callback = ui_callback # Para enviar mensajes a la UI
 
     def load_dynamic_settings(self):
-        self.settings = load_settings()
-        
         # Mapeo de sliders (0-100) a matemáticas del filtro
         # Sensibilidad: Menos suavizado base. (0 = 0.01, 100 = 0.5)
         # Suavizado: Límite superior del suavizado dinámico (0 = 0.1, 100 = 1.0)
@@ -112,7 +118,7 @@ class TouchWallEngine:
         
     def stop(self):
         self.is_running = False
-        if self.thread:
+        if self.thread and self.thread is not threading.current_thread():
             self.thread.join(timeout=1.0)
         self.camera.stop()
         cv2.destroyAllWindows()
@@ -172,6 +178,7 @@ class TouchWallEngine:
             pinch_iniciado = False
             pinch_soltado = False
             right_click_iniciado = False
+            double_click_iniciado = False
             zoom_activo = False
             zoom_delta = 0
             
@@ -195,6 +202,7 @@ class TouchWallEngine:
                 # Cálculo de Pinch y Escala
                 escala_mano = max(0.0001, dist(lm[0], lm[9]))
                 d_pinch = dist(lm[PULGAR_LM], lm[INDICE_LM]) / escala_mano
+                d_double = dist(lm[PULGAR_LM], lm[MEDIO_LM]) / escala_mano
                 d_right = dist(lm[PULGAR_LM], lm[MENIQUE_LM]) / escala_mano
                 d_index_middle = dist(lm[INDICE_LM], lm[MEDIO_LM]) / escala_mano
                 
@@ -202,7 +210,7 @@ class TouchWallEngine:
                 
                 # Scroll Vertical (Índice y Medio unidos)
                 if gesto_final != GESTO_PUÑO:
-                    if d_index_middle < 0.2 and not self.zoom_presionado:
+                    if d_index_middle < 0.4 and not self.zoom_presionado:
                         if not self.scroll_activo:
                             self.scroll_activo = True
                             self.scroll_ref_y = wrist_suave_y
@@ -257,6 +265,13 @@ class TouchWallEngine:
                     right_click_iniciado = True
                 elif self.right_click_presionado and d_right > UMBRAL_PINCH_FIN:
                     self.right_click_presionado = False
+                    
+                # Doble Clic
+                if not self.double_click_presionado and d_double < UMBRAL_PINCH_INICIO:
+                    self.double_click_presionado = True
+                    double_click_iniciado = True
+                elif self.double_click_presionado and d_double > UMBRAL_PINCH_FIN:
+                    self.double_click_presionado = False
 
             # ─── LÓGICA DE ESTADOS ───
             if self.modo == "CALIBRACION":
@@ -308,6 +323,10 @@ class TouchWallEngine:
                     
                     if right_click_iniciado and gestos_conf.get("Click", True):
                         self.mouse.click_derecho()
+                        
+                    if double_click_iniciado and gestos_conf.get("Doble click", True):
+                        self.mouse.click_izquierdo()
+                        self.mouse.click_izquierdo()
                         
                     if pinch_iniciado and gestos_conf.get("Click", True):
                         self.mouse.mouse_down()

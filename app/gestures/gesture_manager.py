@@ -17,7 +17,7 @@ def clasificar_gesto(lm):
         if lm[punta].y > lm[punta - 2].y:
             dedos_cerrados += 1
             
-    if dedos_cerrados >= 3:
+    if dedos_cerrados == 4:
         return GESTO_PUÑO
     
     return GESTO_OTRO
