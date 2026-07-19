@@ -22,6 +22,7 @@ graph TD
     7 --> 8[8. Botones]
     8 --> 9[9. Calibración]
     9 --> 10[10. Proyector]
+    10 --> 11[11. Multitouch (2 Manos)]
 ```
 
 ### Detalle de cada objetivo:
@@ -36,6 +37,7 @@ graph TD
 8. **Botones**: Crear botones virtuales en pantalla que realicen acciones cuando el dedo interactúe con su área (por ejemplo, cambiar color de dibujo, borrar lienzo).
 9. **Calibración**: Implementar una matriz de homografía (usando 4 esquinas de calibración) para mapear correctamente las coordenadas del dedo de la cámara a la pantalla proyectada, corrigiendo deformaciones de perspectiva.
 10. **Proyector**: Integrar todo el sistema proyectándolo sobre una superficie física (pared, mesa), realizando los ajustes finales de luz y posición.
+11. **Multitouch (2 Manos)**: Ampliar la detección para trackear ambas manos simultáneamente, abriendo la puerta a gestos complejos (como el pellizco para hacer zoom) o controlar distintas áreas al mismo tiempo.
 
 ---
 

@@ -24,7 +24,7 @@ from datetime import datetime
 # CONFIGURACIÓN
 # ─────────────────────────────────────────────────────
 
-CAMARA_ID       = 0          # 0 = webcam integrada, 1 = webcam externa
+CAMARA_ID       = 1          # 0 = webcam integrada, 1 = webcam externa
 ANCHO           = 1280       # Resolución de captura (ancho)
 ALTO            = 720        # Resolución de captura (alto)
 FPS_OBJETIVO    = 30         # Frames por segundo solicitados a la cámara

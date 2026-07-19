@@ -34,7 +34,7 @@ from mediapipe.tasks.python import vision as mp_vision
 # CONFIGURACIÓN
 # ─────────────────────────────────────────────────────
 
-CAMARA_ID       = 0       # 0 = webcam real (640x480) | 1 = dispositivo virtual (negro)
+CAMARA_ID       = 1       # 0 = webcam real (640x480) | 1 = dispositivo virtual (negro)
 ANCHO           = 1280
 ALTO            = 720
 FPS_OBJETIVO    = 30
